@@ -8,6 +8,7 @@ from scipy.ndimage import sobel
 
 DROP_MASK_ENERGY = 1e5
 KEEP_MASK_ENERGY = 1e3
+COEFFS = np.array([0.2125, 0.7154, 0.0721], dtype=np.float32)
 
 
 class OrderMode(str, Enum):
@@ -26,8 +27,7 @@ def _list_enum(enum_class) -> Tuple:
 
 def _rgb2gray(rgb: np.ndarray) -> np.ndarray:
     """Convert an RGB image to a grayscale image"""
-    coeffs = np.array([0.2125, 0.7154, 0.0721], dtype=np.float32)
-    return (rgb @ coeffs).astype(rgb.dtype)
+    return (rgb @ COEFFS).astype(rgb.dtype)
 
 
 def _get_seam_mask(src: np.ndarray, seam: np.ndarray) -> np.ndarray:
@@ -129,42 +129,39 @@ def _get_backward_seams(
 def _get_forward_seam(gray: np.ndarray, aux_energy: Optional[np.ndarray]) -> np.ndarray:
     """Compute the minimum vertical seam using forward energy"""
     h, w = gray.shape
-
     gray = np.hstack((gray[:, :1], gray, gray[:, -1:]))
+    energy = aux_energy if aux_energy is not None else np.zeros((h, w), dtype=np.float32)
 
-    inf = np.array([np.inf], dtype=np.float32)
-    dp = np.concatenate((inf, np.abs(gray[0, 2:] - gray[0, :-2]), inf))
+    dp = np.empty(w + 2, dtype=np.float32)
+    dp[0] = np.inf
+    dp[1:-1] = np.abs(gray[0, 2:] - gray[0, :-2])
+    dp[-1] = np.inf
+    dp_mid = dp[1:-1]
 
     parent = np.empty((h, w), dtype=np.int32)
+    choices = np.empty((3, w), dtype=np.float32)
     base_idx = np.arange(-1, w - 1, dtype=np.int32)
+    min_idx = np.zeros(w, dtype=np.int32)
 
-    inf = np.array([np.inf], dtype=np.float32)
     for r in range(1, h):
-        curr_shl = gray[r, 2:]
-        curr_shr = gray[r, :-2]
-        cost_mid = np.abs(curr_shl - curr_shr)
-        if aux_energy is not None:
-            cost_mid += aux_energy[r]
+        for j in range(w):
+            cmid = abs(gray[r, j + 2] - gray[r, j]) + energy[r, j]
+            choices[0, j] = cmid + abs(gray[r - 1, j + 1] - gray[r, j]) + dp[j]
+            choices[1, j] = cmid + dp_mid[j]
+            choices[2, j] = cmid + abs(gray[r - 1, j + 1] - gray[r, j + 2]) + dp[j + 2]
 
-        prev_mid = gray[r - 1, 1:-1]
-        cost_left = cost_mid + np.abs(prev_mid - curr_shr)
-        cost_right = cost_mid + np.abs(prev_mid - curr_shl)
+        for j in range(w):
+            min_idx[j] = 0
+            dp_mid[j] = choices[0, j]
 
-        dp_mid = dp[1:-1]
-        dp_left = dp[:-2]
-        dp_right = dp[2:]
+            for i in range(1, 3):
+                if choices[i, j] < dp_mid[j]:
+                    min_idx[j] = i
+                    dp_mid[j] = choices[i, j]
 
-        choices = np.vstack(
-            (cost_left + dp_left, cost_mid + dp_mid, cost_right + dp_right)
-        )
-        min_idx = np.argmin(choices, axis=0)
         parent[r] = min_idx + base_idx
-        # numba does not support specifying axis in np.min, below loop is equivalent to:
-        # `dp_mid[:] = np.min(choices, axis=0)` or `dp_mid[:] = choices[min_idx, np.arange(w)]`
-        for j, i in enumerate(min_idx):
-            dp_mid[j] = choices[i, j]
 
-    c = np.argmin(dp[1:-1])
+    c = np.argmin(dp_mid)
     seam = np.empty(h, dtype=np.int32)
     for r in range(h - 1, -1, -1):
         seam[r] = c
