@@ -136,7 +136,6 @@ def _get_forward_seam(gray: np.ndarray, aux_energy: Optional[np.ndarray]) -> np.
     dp[0] = np.inf
     dp[1:-1] = np.abs(gray[0, 2:] - gray[0, :-2])
     dp[-1] = np.inf
-    dp_mid = dp[1:-1]
 
     parent = np.empty((h, w), dtype=np.int32)
     choices = np.empty((3, w), dtype=np.float32)
@@ -147,21 +146,21 @@ def _get_forward_seam(gray: np.ndarray, aux_energy: Optional[np.ndarray]) -> np.
         for j in range(w):
             cmid = abs(gray[r, j + 2] - gray[r, j]) + energy[r, j]
             choices[0, j] = cmid + abs(gray[r - 1, j + 1] - gray[r, j]) + dp[j]
-            choices[1, j] = cmid + dp_mid[j]
+            choices[1, j] = cmid + dp[j + 1]
             choices[2, j] = cmid + abs(gray[r - 1, j + 1] - gray[r, j + 2]) + dp[j + 2]
 
         for j in range(w):
             min_idx[j] = 0
-            dp_mid[j] = choices[0, j]
+            dp[j + 1] = choices[0, j]
 
             for i in range(1, 3):
-                if choices[i, j] < dp_mid[j]:
+                if choices[i, j] < dp[j + 1]:
                     min_idx[j] = i
-                    dp_mid[j] = choices[i, j]
+                    dp[j + 1] = choices[i, j]
 
         parent[r] = min_idx + base_idx
 
-    c = np.argmin(dp_mid)
+    c = np.argmin(dp[1:-1])
     seam = np.empty(h, dtype=np.int32)
     for r in range(h - 1, -1, -1):
         seam[r] = c
