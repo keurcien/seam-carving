@@ -141,7 +141,7 @@ def _get_forward_seam(gray: np.ndarray, aux_energy: Optional[np.ndarray]) -> np.
     parent = np.empty((h, w), dtype=np.int32)
     choices = np.empty((3, w), dtype=np.float32)
     base_idx = np.arange(-1, w - 1, dtype=np.int32)
-    min_idx = np.zeros(w, dtype=np.int32)
+    min_idx = np.empty(w, dtype=np.int32)
 
     for r in range(1, h):
         for j in range(w):
